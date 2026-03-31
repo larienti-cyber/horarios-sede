@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Horarios por sede</title>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+  <style>
+    :root{
+      --bg:#f4f4f4; --card:#fff; --text:#111; --muted:#666; --line:#dedede;
+      --red:#d50000; --yellow:#ffd600; --green:#00a651;
+      --teo-bg:#fff3cd; --teo-border:#d8b000;
+      --control:#eef5ff; --control-border:#a9c8ff; --control-text:#0d3b8e;
+      --admin:#f3ecff; --admin-border:#c5aaff; --admin-text:#5b33a8;
+    }
+    *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+    body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;background:var(--bg);color:var(--text)}
+    .bands{position:sticky;top:0;z-index:4}.band{height:8px}.red{background:var(--red)}.yellow{background:var(--yellow)}.green{background:var(--green)}
+    .app{max-width:760px;margin:0 auto;padding:10px 12px 32px}
+    .title{font-size:16px;font-weight:800;margin:10px 0}
+    .topbar{display:flex;gap:8px;margin-bottom:8px}
+    .controls{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px}
+    button,select,input{
+      width:100%;font-size:16px;padding:11px 12px;border-radius:12px;border:1px solid var(--line);
+      background:#fff;color:var(--text)
+    }
+    .btn-now,.controls select{background:var(--control);border-color:var(--control-border);color:var(--control-text);font-weight:700}
+    .btn-admin{background:var(--admin);border-color:var(--admin-border);color:var(--admin-text);font-weight:700;max-width:150px}
+    .summary{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:10px}
+    .summary-top{font-size:13px;font-weight:500;line-height:1.2;color:var(--muted);margin-bottom:4px}
+    .summary-rooms{font-size:13px;line-height:1.35;color:var(--muted);word-break:break-word}
+    .list{display:flex;flex-direction:column;gap:8px}
+    .item{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+    .item.teo{background:var(--teo-bg);border-color:var(--teo-border)}
+    .row1{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+    .mainline{min-width:0;display:flex;align-items:baseline;gap:8px;flex:1}
+    .aula{font-size:18px;font-weight:800;line-height:1;flex:0 0 auto}
+    .materia{min-width:0;font-size:16px;font-weight:800;line-height:1.2;word-break:break-word}
+    .double{flex:0 0 auto;font-size:12px;font-weight:800;padding:2px 6px;border-radius:999px;border:1px solid #b8b8b8;background:#f0f0f0;color:#222;margin-top:1px}
+    .double.hidden{visibility:hidden}
+    .meta{margin-top:4px;padding-right:34px;font-size:13px;line-height:1.35;color:var(--muted)}
+    .badge-teo{display:inline-block;margin-right:6px;padding:1px 6px;border-radius:999px;background:#111;color:#fff;font-size:11px;font-weight:800;vertical-align:1px}
+    .gate,.modal{position:fixed;inset:0;background:rgba(244,244,244,.98);display:flex;align-items:center;justify-content:center;padding:20px;z-index:20}
+    .card{width:min(460px,100%);background:#fff;border:1px solid var(--line);border-radius:16px;padding:18px;box-shadow:0 10px 30px rgba(0,0,0,.08)}
+    .card h2{font-size:20px;margin:0 0 6px;font-weight:800}
+    .card p{font-size:14px;color:var(--muted);line-height:1.35;margin:0 0 10px}
+    .error{min-height:18px;margin-top:8px;font-size:13px;color:#b00020}
+    .status{margin-top:10px;font-size:12px;color:var(--muted);text-align:center}
+    .empty{padding:18px 14px;background:#fff;border:1px dashed var(--line);border-radius:12px;text-align:center;color:var(--muted)}
+    .hidden{display:none !important}
+    .admin-tools{display:grid;gap:10px;margin-top:10px}
+    .admin-box{border:1px solid var(--line);border-radius:12px;padding:12px;background:#fafafa}
+    .admin-title{font-size:13px;font-weight:800;margin-bottom:5px}
+    .admin-text{font-size:12px;color:var(--muted);line-height:1.35;margin-bottom:8px}
+    .admin-actions{display:flex;gap:8px;flex-wrap:wrap}
+    .pill{display:inline-block;padding:2px 8px;border-radius:999px;background:#eee;font-size:12px;font-weight:700}
+    @media (max-width:560px){.controls{grid-template-columns:1fr}.topbar{flex-direction:column}.btn-admin{max-width:none}}
+  </style>
+</head>
+<body>
+  <div class="gate" id="gate">
+    <div class="card">
+      <h2>Ingreso</h2>
+      <p>Escribí la contraseña para abrir la consulta de aulas.</p>
+      <input type="password" id="passwordInput" placeholder="Contraseña" autocomplete="current-password" />
+      <div style="margin-top:10px;"><button type="button" id="enterBtn">Entrar</button></div>
+      <div class="error" id="gateError"></div>
+    </div>
+  </div>
+
+  <div class="modal hidden" id="adminModal">
+    <div class="card">
+      <h2>Modo admin</h2>
+      <p>Con este acceso podés cargar un Excel nuevo desde este dispositivo. Esa actualización queda guardada en este navegador. Para que la vean todos, además tenés que reemplazar <strong>data.json</strong> en GitHub.</p>
+      <input type="password" id="adminPasswordInput" placeholder="Clave admin" autocomplete="current-password" />
+      <div style="margin-top:10px;"><button type="button" id="adminEnterBtn">Entrar como admin</button></div>
+      <div class="error" id="adminError"></div>
+      <div style="margin-top:8px;"><button type="button" id="adminCloseBtn">Cerrar</button></div>
+    </div>
+  </div>
+
+  <div class="bands">
+    <div class="band red"></div>
+    <div class="band yellow"></div>
+    <div class="band green"></div>
+  </div>
+
+  <div class="app">
+    <div class="title">Aulas ocupadas por sede y horario</div>
+
+    <div class="topbar">
+      <button type="button" id="nowBtn" class="btn-now">Ahora</button>
+      <button type="button" id="adminBtn" class="btn-admin">Admin</button>
+    </div>
+
+    <div id="adminPanel" class="summary hidden">
+      <div class="summary-top">Modo admin activo <span class="pill">solo este dispositivo</span></div>
+      <div class="admin-tools">
+        <div class="admin-box">
+          <div class="admin-title">Subir Excel nuevo</div>
+          <div class="admin-text">Cargás un .xlsx, se convierte solo y queda guardado en este navegador.</div>
+          <input type="file" id="excelInput" accept=".xlsx,.xls" />
+        </div>
+        <div class="admin-box">
+          <div class="admin-title">Exportar JSON</div>
+          <div class="admin-text">Bajá el JSON ya convertido para reemplazar <strong>data.json</strong> en GitHub y que el cambio lo vean todos.</div>
+          <div class="admin-actions">
+            <button type="button" id="downloadJsonBtn">Descargar data.json</button>
+            <button type="button" id="resetLocalBtn">Volver a base publicada</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <select id="daySelect"></select>
+      <select id="sedeSelect"></select>
+      <select id="timeSelect"></select>
+    </div>
+
+    <div class="summary">
+      <div class="summary-top" id="summaryTop">—</div>
+      <div class="summary-rooms" id="summaryRooms">—</div>
+    </div>
+
+    <div class="list" id="results"></div>
+    <div class="status" id="status">Cargando base…</div>
+  </div>
+
+<script>
+const PASSWORD = "epavuelve";
+const ADMIN_PASSWORD = "epavuelve-admin";
+const BLOCKS = ["07:30","09:15","11:00","12:45","14:30","16:15","18:00","19:45","21:30"];
+const DAYS = ["lunes","martes","miércoles","jueves","viernes","sábado"];
+const STORAGE_KEY_DATA = "horarios_custom_data_v4";
+const STORAGE_KEY_UNLOCK = "horarios_unlocked_v4";
+const STORAGE_KEY_ADMIN = "horarios_admin_v4";
+
+let DATA = [];
+
+const gate = document.getElementById("gate");
+const passwordInput = document.getElementById("passwordInput");
+const enterBtn = document.getElementById("enterBtn");
+const gateError = document.getElementById("gateError");
+const adminModal = document.getElementById("adminModal");
+const adminPasswordInput = document.getElementById("adminPasswordInput");
+const adminEnterBtn = document.getElementById("adminEnterBtn");
+const adminCloseBtn = document.getElementById("adminCloseBtn");
+const adminError = document.getElementById("adminError");
+const adminBtn = document.getElementById("adminBtn");
+const adminPanel = document.getElementById("adminPanel");
+const excelInput = document.getElementById("excelInput");
+const downloadJsonBtn = document.getElementById("downloadJsonBtn");
+const resetLocalBtn = document.getElementById("resetLocalBtn");
+const daySelect = document.getElementById("daySelect");
+const sedeSelect = document.getElementById("sedeSelect");
+const timeSelect = document.getElementById("timeSelect");
+const summaryTop = document.getElementById("summaryTop");
+const summaryRooms = document.getElementById("summaryRooms");
+const results = document.getElementById("results");
+const nowBtn = document.getElementById("nowBtn");
+const statusEl = document.getElementById("status");
+
+function fillSelect(select, items, mapper){
+  select.innerHTML = "";
+  items.forEach(item => {
+    const opt = document.createElement("option");
+    const mapped = mapper ? mapper(item) : { value:item, label:item };
+    opt.value = mapped.value;
+    opt.textContent = mapped.label;
+    select.appendChild(opt);
+  });
+}
+function parseHHMM(hhmm){
+  const [h,m] = String(hhmm).split(":").map(Number);
+  return h * 60 + m;
+}
+function currentBlock(){
+  const now = new Date();
+  const minutes = now.getHours()*60 + now.getMinutes();
+  let current = BLOCKS[0];
+  for(const block of BLOCKS){ if(parseHHMM(block) <= minutes) current = block; }
+  return current;
+}
+function currentDay(){
+  const map = {1:"lunes",2:"martes",3:"miércoles",4:"jueves",5:"viernes",6:"sábado"};
+  return map[new Date().getDay()] || DAYS[0];
+}
+function getSedes(){
+  const preferred = ["HY","IN"];
+  const found = [...new Set(DATA.map(x => x.sede))].filter(Boolean);
+  return [...preferred.filter(x => found.includes(x)), ...found.filter(x => !preferred.includes(x)).sort()];
+}
+function activeInBlock(item, blockHHMM){
+  const b = parseHHMM(blockHHMM);
+  return item.inicioMin <= b && b < item.finMin;
+}
+function compareItems(a,b){
+  const aTeo = a.tipoKey === "teo" ? 0 : 1;
+  const bTeo = b.tipoKey === "teo" ? 0 : 1;
+  if(aTeo !== bTeo) return aTeo - bTeo;
+  const na = parseInt(String(a.aulaNumero).replace(/\D/g, ""), 10);
+  const nb = parseInt(String(b.aulaNumero).replace(/\D/g, ""), 10);
+  if(!Number.isNaN(na) && !Number.isNaN(nb) && na !== nb) return na - nb;
+  return String(a.aulaNumero).localeCompare(String(b.aulaNumero), "es");
+}
+function escapeHtml(str){
+  return String(str).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
+}
+function setupSelects(){
+  const prevDay = daySelect.value, prevSede = sedeSelect.value, prevTime = timeSelect.value;
+  fillSelect(daySelect, DAYS, d => ({ value:d, label:d.charAt(0).toUpperCase() + d.slice(1) }));
+  fillSelect(sedeSelect, getSedes(), s => ({ value:s, label:s }));
+  fillSelect(timeSelect, BLOCKS, t => ({ value:t, label:t }));
+  daySelect.value = DAYS.includes(prevDay) ? prevDay : (DAYS.includes(currentDay()) ? currentDay() : DAYS[0]);
+  const sedes = getSedes();
+  sedeSelect.value = sedes.includes(prevSede) ? prevSede : (sedes.includes("HY") ? "HY" : sedes[0]);
+  timeSelect.value = BLOCKS.includes(prevTime) ? prevTime : currentBlock();
+}
+function render(){
+  if(!DATA.length){
+    summaryTop.textContent = "Sin datos";
+    summaryRooms.textContent = "";
+    results.innerHTML = '<div class="empty">No se pudo cargar la base.</div>';
+    return;
+  }
+  const dia = daySelect.value, sede = sedeSelect.value, hora = timeSelect.value;
+  const filtered = DATA.filter(x => x.dia===dia).filter(x => x.sede===sede).filter(x => activeInBlock(x,hora)).sort(compareItems);
+  const aulas = filtered.map(x => x.aulaNumero);
+  summaryTop.textContent = `${filtered.length} aulas ocupadas a las ${hora}`;
+  summaryRooms.textContent = aulas.length ? aulas.join(", ") : "No hay aulas ocupadas en esa combinación.";
+  results.innerHTML = "";
+  if(!filtered.length){
+    results.innerHTML = '<div class="empty">No hay resultados para ese día, sede y horario.</div>';
+    return;
+  }
+  filtered.forEach(item => {
+    const card = document.createElement("div");
+    card.className = "item" + (item.tipoKey==="teo" ? " teo" : "");
+    const row1 = document.createElement("div"); row1.className = "row1";
+    const main = document.createElement("div"); main.className = "mainline";
+    const aula = document.createElement("div"); aula.className = "aula"; aula.textContent = item.aulaNumero;
+    const materia = document.createElement("div"); materia.className = "materia";
+    let line = `${item.materia}`; if(item.catedra) line += ` — ${item.catedra}`;
+    if(item.tipoKey==="teo"){ materia.innerHTML = `<span class="badge-teo">TEO</span>${escapeHtml(line)}`; } else { materia.textContent = line; }
+    const double = document.createElement("div"); double.className = "double" + (item.esDoble ? "" : " hidden"); double.textContent = "D";
+    const meta = document.createElement("div"); meta.className = "meta";
+    meta.textContent = [item.tipo, item.profesor, `${item.inicio}–${item.fin}`].filter(Boolean).join(" — ");
+    main.appendChild(aula); main.appendChild(materia); row1.appendChild(main); row1.appendChild(double);
+    card.appendChild(row1); card.appendChild(meta); results.appendChild(card);
+  });
+}
+function unlock(){
+  const value = (passwordInput.value || "").trim();
+  if(value === PASSWORD){
+    gate.classList.add("hidden");
+    try{ localStorage.setItem(STORAGE_KEY_UNLOCK, "1"); }catch(e){}
+    render();
+  } else { gateError.textContent = "Contraseña incorrecta."; }
+}
+function openAdmin(){ adminModal.classList.remove("hidden"); adminPasswordInput.focus(); }
+function closeAdmin(){ adminModal.classList.add("hidden"); adminError.textContent = ""; adminPasswordInput.value = ""; }
+function enterAdmin(){
+  const value = (adminPasswordInput.value || "").trim();
+  if(value === ADMIN_PASSWORD){
+    adminModal.classList.add("hidden");
+    adminPanel.classList.remove("hidden");
+    try{ localStorage.setItem(STORAGE_KEY_ADMIN, "1"); }catch(e){}
+  } else { adminError.textContent = "Clave admin incorrecta."; }
+}
+function preprocessRows(rows){
+  const blocksMin = BLOCKS.map(parseHHMM);
+  function normalizeTime(v){
+    if(v == null || v === "") return "";
+    if(typeof v === "number"){
+      const totalMinutes = Math.round(v * 24 * 60);
+      const hh = String(Math.floor(totalMinutes / 60)).padStart(2,"0");
+      const mm = String(totalMinutes % 60).padStart(2,"0");
+      return `${hh}:${mm}`;
+    }
+    const s = String(v).trim();
+    const m = s.match(/^(\d{1,2}):(\d{2})/);
+    if(m) return `${String(Number(m[1])).padStart(2,"0")}:${m[2]}`;
+    return s;
+  }
+  function cleanCat(s){
+    s = String(s || "").trim().replace(/^[-\s]+/, "");
+    s = s.replace(/\b(lic\.?|prof\.?|mg\.?|mga\.?|dr\.?|dra\.?)\b/gi, "");
+    s = s.replace(/\s+/g, " ").trim().replace(/^[-,\.\s]+|[-,\.\s]+$/g, "");
+    if(s.includes(",")) s = s.split(",")[0].trim().replace(/^[.\-–—\s]+|[.\-–—\s]+$/g, "");
+    s = s.replace(/^[.\-–—\s]+|[.\-–—\s]+$/g, "");
+    return s;
+  }
+  function aulaNum(aula){
+    const s = String(aula || "").trim();
+    const m = s.match(/-(\d+)$/);
+    if(m) return String(parseInt(m[1], 10));
+    return s;
+  }
+  return rows.map(r => {
+    let sede = String(r["Sede"] || "").trim().toUpperCase();
+    if(sede === "SI") return null;
+    if(sede === "IND") sede = "IN";
+    const inicio = normalizeTime(r["Inicio"]);
+    const fin = normalizeTime(r["Fin"]);
+    if(!inicio || !fin) return null;
+    const inicioMin = parseHHMM(inicio), finMin = parseHHMM(fin);
+    const occupied = blocksMin.filter(b => inicioMin <= b && b < finMin);
+    const tipo = String(r["Tipo"] || "").trim();
+    return {
+      materia: String(r["Materia"] || "").trim(),
+      catedra: cleanCat(r["Cátedra"]),
+      tipo: tipo,
+      tipoKey: tipo.toLowerCase(),
+      profesor: String(r["Profesor"] || "").trim(),
+      dia: String(r["Día"] || "").trim().toLowerCase(),
+      inicio, fin, inicioMin, finMin,
+      aulaNumero: aulaNum(r["Aula"]),
+      sede,
+      esDoble: occupied.length >= 2
+    };
+  }).filter(Boolean);
+}
+function saveLocalData(){
+  try{ localStorage.setItem(STORAGE_KEY_DATA, JSON.stringify(DATA)); }catch(e){}
+}
+function loadLocalData(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY_DATA);
+    if(raw){ DATA = JSON.parse(raw); return true; }
+  }catch(e){}
+  return false;
+}
+async function loadPublishedData(){
+  const res = await fetch("data.json", { cache: "no-store" });
+  if(!res.ok) throw new Error("No se pudo abrir data.json");
+  DATA = await res.json();
+}
+async function loadInitialData(){
+  try{
+    const hasLocal = loadLocalData();
+    if(!hasLocal) await loadPublishedData();
+    setupSelects(); render();
+    statusEl.textContent = hasLocal
+      ? `Base local cargada: ${DATA.length} registros`
+      : `Base publicada cargada: ${DATA.length} registros`;
+  }catch(err){
+    statusEl.textContent = "Error al cargar la base";
+    results.innerHTML = '<div class="empty">No se pudo cargar la base. Revisá que data.json esté subido junto con index.html.</div>';
+  }
+}
+function handleExcel(file){
+  const reader = new FileReader();
+  reader.onload = function(e){
+    try{
+      const bytes = new Uint8Array(e.target.result);
+      const workbook = XLSX.read(bytes, { type:"array" });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, { defval:"" });
+      DATA = preprocessRows(rows);
+      saveLocalData();
+      setupSelects();
+      render();
+      statusEl.textContent = `Base local actualizada: ${DATA.length} registros`;
+      alert("Excel cargado. Esta actualización quedó guardada en este navegador.");
+    }catch(err){
+      alert("No se pudo procesar ese Excel.");
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+function downloadJson(){
+  const blob = new Blob([JSON.stringify(DATA, null, 2)], { type:"application/json;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = "data.json";
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+async function resetToPublished(){
+  try{
+    localStorage.removeItem(STORAGE_KEY_DATA);
+    await loadPublishedData();
+    setupSelects();
+    render();
+    statusEl.textContent = `Base publicada cargada: ${DATA.length} registros`;
+    alert("Se volvió a la base publicada.");
+  }catch(err){
+    alert("No se pudo volver a la base publicada.");
+  }
+}
+
+[daySelect, sedeSelect, timeSelect].forEach(el => el.addEventListener("change", render));
+nowBtn.addEventListener("click", () => { daySelect.value = DAYS.includes(currentDay()) ? currentDay() : DAYS[0]; timeSelect.value = currentBlock(); render(); });
+enterBtn.addEventListener("click", unlock);
+passwordInput.addEventListener("keydown", e => { if(e.key==="Enter" || e.keyCode===13){ e.preventDefault(); unlock(); } });
+adminBtn.addEventListener("click", openAdmin);
+adminCloseBtn.addEventListener("click", closeAdmin);
+adminEnterBtn.addEventListener("click", enterAdmin);
+adminPasswordInput.addEventListener("keydown", e => { if(e.key==="Enter" || e.keyCode===13){ e.preventDefault(); enterAdmin(); } });
+excelInput.addEventListener("change", e => { const file = e.target.files && e.target.files[0]; if(file) handleExcel(file); });
+downloadJsonBtn.addEventListener("click", downloadJson);
+resetLocalBtn.addEventListener("click", resetToPublished);
+
+try{
+  if(localStorage.getItem(STORAGE_KEY_UNLOCK) === "1") gate.classList.add("hidden");
+  if(localStorage.getItem(STORAGE_KEY_ADMIN) === "1") adminPanel.classList.remove("hidden");
+}catch(e){}
+
+loadInitialData();
+</script>
+</body>
+</html>
